@@ -102,80 +102,34 @@ final class ItemRepository: ItemRepositoryInterface {
 - SwiftUI와 UIKit에 모두 비동기프로그래밍을 적용하고자 `Combine`을 학습 중입니다.
 - UIKit의 ViewModel은 `Input/Output Modeling`을 통해 View로부터 전달된 이벤트는 Input, View로 전달할 데이터는 Output을 통해 Binding합니다.
 ``` swift
-struct BattleHistoryDetailViewModel {
-    struct Input {
-        let viewLoad: AnyPublisher<BattleHistoryResultDTO, Never>
+
+class ItemDetailViewModel: CommonViewModelType {
+    
+    let itemUseCase: ItemUseCaseProtocol
+    init(itemUseCase: ItemUseCaseProtocol){
+        self.itemUseCase = itemUseCase
     }
-    struct Output {
-        let historyDetailData: AnyPublisher<BattleHistoryDetailItemViewData, Never>
-    }
+
     func transform(input: Input) -> Output {
-        let historyData = input.viewLoad.map {
-            return BattleHistoryDetailItemViewData(battleHistoryItem: $0)
-        }.eraseToAnyPublisher()
-        return Output(historyDetailData: historyData)
-    }
-}
-```
-- SwiftUI의 ViewModel은 `ObservableObject`와 `@Published`프로퍼티 패턴를 활용해 Binding합니다.
-``` swift
-final class MyPageViewModel: ObservableObject {
-    @Published var myPageName: String = ""
-    @Published var myPageDate: String = ""
-    @Published var startDate: String = ""
-    private var cancellables: Set<AnyCancellable> = []
-    private let myPageGetUseCase: MyPageGetUseCaseProtocol
-    private let navigationController: UINavigationController
-    private let viewController: UIViewController
-    init(myPageGetUseCase: MyPageGetUseCaseProtocol, navigationController: UINavigationController, viewController: UIViewController) {
-        self.myPageGetUseCase = myPageGetUseCase
-        self.navigationController = navigationController
-        self.viewController = viewController
-    }
-    // MARK: - Custom Method
-    func getMyPageData() {
-        myPageGetUseCase.excute().sink { [weak self] completion in
-            guard let self = self else { return }
-            switch completion {
-            case .failure(let errorType):
-                errorResponse(status: errorType)
-            case .finished:
-                break
+        let data = input.viewDidLoad
+            .flatMap{ ItemService.shared.getItemDetail(id: self.itemId) }
+            .do(onNext: { data in
+                self.itemDetail = data
+            })
+        
+        let dataSource = data.map { dto -> [DetailInfoSectionItem] in
+            var result = [DetailInfoSectionItem]()
+            SectionLayoutKind.allCases.forEach { section in
+                switch section {
+                case .ItemThumbnail:
+                    let thumbnail = Thumbnail(images: dto.item.images)
+                    result.append(.Thumbnail(thumbnail)) // MARK: 기존 방식
+                case .ItemTitleInfo:
+                    let data = self.itemUseCase.excute()
+                                    .subscribe(onNext: { titleInfo in
+                                        result.append(.TitleInfo(titleInfo)) // MARK: UseCase를 만들어서 주입한 것.
+                                    })
+                }
             }
-        } receiveValue: { [weak self] data in
-            guard let self = self else { return }
-            self.myPageDate = MyPageGetItemViewData(myPageGetItem: data).date
-            self.myPageName = MyPageGetItemViewData(myPageGetItem: data).name
-            self.startDate = data.startDate ?? ""
-        }
-        .store(in: &cancellables)
-    }
-}
-```
-> ItemViewData
-- Entity를 View에서 쉽게 사용하기 위한 데이터로 변환하는 작업을 수행합니다.
-``` swift
-struct BattleHistoryItemViewData {
-    let date: String
-    let gameTitle: String
-    let imagePath: URL?
-    let result: String
-    let battleHistoryItem: BattleHistoryResultDTO
-    init(battleHistoryItem: BattleHistoryResultDTO) {
-        self.battleHistoryItem = battleHistoryItem
-        self.date = battleHistoryItem.date ?? ""
-        self.gameTitle = battleHistoryItem.title ?? ""
-        self.imagePath = URL(string: battleHistoryItem.image ?? "")
-        switch battleHistoryItem.result {
-        case "DRAW":
-            self.result = "무승부"
-        case "WIN":
-            self.result = "승리"
-        case "LOSE":
-            self.result = "패배"
-        default:
-            self.result = battleHistoryItem.result ?? ""
-        }
-    }
-}
+>
 ```
